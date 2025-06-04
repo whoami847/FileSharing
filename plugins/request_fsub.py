@@ -16,11 +16,12 @@ import time
 import logging
 from pyrogram import Client, filters, __version__
 from pyrogram.enums import ParseMode, ChatAction, ChatMemberStatus, ChatType
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, ChatInviteLink, ChatPermissions
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, ChatInviteLink, ChatPermissions, ChatMemberUpdated, InputMediaPhoto
 from bot import Bot
 from helper_func import *
 from database.database import *
 from config import OWNER_ID
+
 
 # Set up logging for this module
 logger = logging.getLogger(__name__)
