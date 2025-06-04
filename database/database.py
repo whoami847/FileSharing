@@ -171,7 +171,7 @@ class Mehedi:
 
     async def add_channel(self, channel_id: int):
         if not await self.channel_exist(channel_id):
-            await self.fsub_data.insert_one({'_id': channel_id, 'mode': 'off'})
+            await self.fsub_data.insert_one({'_id': channel_id, 'mode': 'off', 'visibility': 'show'})
             logger.info(f"Added channel {channel_id} to force-sub list")
             return
 
@@ -196,6 +196,34 @@ class Mehedi:
             upsert=True
         )
         logger.info(f"Set channel {channel_id} mode to {mode}")
+
+    async def set_fsub_system_status(self, status: bool):
+        """Set the force-sub system status (enabled/disabled)."""
+        await self.fsub_data.update_one(
+            {'_id': 'system_status'},
+            {'$set': {'enabled': status}},
+            upsert=True
+        )
+        logger.info(f"Force-sub system status set to {status}")
+
+    async def get_fsub_system_status(self):
+        """Get the force-sub system status."""
+        data = await self.fsub_data.find_one({'_id': 'system_status'})
+        return data.get('enabled', True) if data else True
+
+    async def set_channel_visibility(self, channel_id: int, visibility: str):
+        """Set the visibility status (show/hide) for a channel."""
+        await self.fsub_data.update_one(
+            {'_id': channel_id},
+            {'$set': {'visibility': visibility}},
+            upsert=True
+        )
+        logger.info(f"Visibility for channel {channel_id} set to {visibility}")
+
+    async def get_channel_visibility(self, channel_id: int):
+        """Get the visibility status for a channel."""
+        data = await self.fsub_data.find_one({'_id': channel_id})
+        return data.get('visibility', 'show') if data else 'show'
 
     async def req_user(self, channel_id: int, user_id: int):
         try:
