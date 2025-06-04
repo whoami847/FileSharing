@@ -32,7 +32,7 @@ EMOJI_MODE = True
 REACTIONS = ["👍", "😍", "🔥", "🎉", "❤️", "⚡"]
 STICKER_ID = "CAACAgUAAxkBAAJFeWd037UWP-vgb_dWo55DCPZS9zJzAAJpEgACqXaJVxBrhzahNnwSHgQ"
 
-# List of message effect IDs for random selection (Converted to integers)
+# List of message effect IDs for random selection
 MESSAGE_EFFECT_IDS = [
     5104841245755180586,  # 🔥
     5107584321108051014,  # 👍
@@ -54,7 +54,7 @@ async def short_url(client: Client, message: Message, base64_string):
         short_link = await get_shortlink(SHORTLINK_URL, SHORTLINK_API, prem_link)
         buttons = [
             [InlineKeyboardButton(text="ᴅᴏᴡɴʟᴏᴀᴅ", url=short_link), InlineKeyboardButton(text="ᴛᴜᴛᴏʀɪᴀʟ", url=TUT_VID)],
-            [InlineKeyboardButton(text="ᴘʙᴇᴍɪᴜᴍ", callback_data="premium")]
+            [InlineKeyboardButton(text="ᴘʀᴇᴍɪᴜᴍ", callback_data="premium")]
         ]
         await message.reply_photo(
             photo=SHORTENER_PIC,
@@ -62,8 +62,8 @@ async def short_url(client: Client, message: Message, base64_string):
             reply_markup=InlineKeyboardMarkup(buttons),
             message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
         )
-    except IndexError:
-        pass
+    except Exception as e:
+        logger.error(f"Error generating short URL: {e}")
 
 async def is_subscribed(client: Client, user_id: int):
     """Check if user is subscribed to all required force-sub channels."""
@@ -107,116 +107,94 @@ async def start_command(client: Client, message: Message):
     if not await db.present_user(user_id):
         try:
             await db.add_user(user_id)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Error adding user {user_id} to database: {e}")
 
     text = message.text
     if len(text) > 7:
         try:
-            basic = text.split(" ", 1)[1]
-            base64_string = basic[6:-1] if basic.startswith("yu3elk") else basic
-            if not is_premium and user_id != OWNER_ID and not basic.startswith("yu3elk"):
+            base64_string = text.split(" ", 1)[1]
+            if base64_string.startswith("yu3elk"):
+                base64_string = base64_string[6:-1]
+            if not is_premium and user_id != OWNER_ID and not text.startswith("/start yu3elk"):
                 await short_url(client, message, base64_string)
                 return
-        channel_ids = []
-        if not is_premium_user:
+            string = await decode(base64_string)
+            argument = string.split("-")
+            ids = []
+            if len(argument) == 3:
+                try:
+                    start = int(int(argument[1]) / abs(client.db_channel.id))
+                    end = int(int(argument[2]) / abs(client.db_channel.id))
+                    ids = range(start, end + 1) if start <= end else list(range(start, end - 1, -1))
+                except Exception as e:
+                    logger.error(f"Error decoding IDs: {e}")
+                    return
+            elif len(argument) == 2:
+                try:
+                    ids = [int(int(argument[1]) / abs(client.db_channel.id))]
+                except Exception as e:
+                    logger.error(f"Error decoding ID: {e}")
+                    return
+            # Animation messages for file request
+            m = await message.reply_text("<blockquote><b>Checking...</b></blockquote>")
+            await asyncio.sleep(0.4)
+            await m.edit_text("<blockquote><b>Getting your files...</b></blockquote>")
+            await asyncio.sleep(0.5)
+            await m.delete()
             try:
-                channel_ids = []
-                for channel_id in range(len(basic)):
-                    if channel_ids[channel_id] == "start":
-                        basic = channel_ids[channel_id + 1]
-                        break
-            except:
-                pass
-            try:
-                basic = text.split(" ", 1)
-                base64_string = basic[6:-1] if basic.startswith("yu3elk") else basic
-            except:
-                pass
-
-        string = await decode(base64_string)
-        argument = string.split("-")
-        ids = []
-        if len(argument) == 3:
-            try:
-                start = int(int(argument[1]) / abs(client.db_channel.id))
-                end = int(int(argument[2]) / abs(client.db_channel.id))
-                ids = range(start, end + 1) if start <= end else list(range(start, end - 1, -1))
+                messages = await get_messages(client, ids)
             except Exception as e:
-                print(f"Error decoding IDs: {e}")
+                await message.reply_text("sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ!")
+                logger.error(f"Error getting messages: {e}")
                 return
-        elif len(argument) == 2:
-            try:
-                ids = [int(int(argument[1]) / abs(client.db_channel.id))]
-            except Exception as e:
-                print(f"Error decoding ID: {e}")
-                return
-        # New animation messages for file request
-        m = await message.reply_text("<blockquote><b>Checking...</b></blockquote>")
-        await asyncio.sleep(0.4)
-        await m.edit_text("<blockquote><b>Getting your files...</b></blockquote>")
-        await asyncio.sleep(0.5)
-        await m.delete()
-        try:
-            messages = await get_messages(client, ids)
-        except Exception as e:
-            await message.reply_text("sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ!")
-            print(f"Error getting messages: {e}")
-            return
-        animelord_msgs = []
-        # Load settings dynamically before copying messages
-        settings = await db.get_settings()
-        PROTECT_CONTENT = settings.get('PROTECT_CONTENT', False)
-        print(f"Copying message with PROTECT_CONTENT={PROTECT_CONTENT}")
-        for msg in messages:
-            caption = (CUSTOM_CAPTION.format(previouscaption="" if not msg.caption else msg.caption.html,
-                                             filename=msg.document.file_name) if bool(CUSTOM_CAPTION) and bool(msg.document)
-                       else ("" if not msg.caption else msg.caption.html))
-            reply_markup = msg.reply_markup if DISABLE_CHANNEL_BUTTON else None
-            try:
-                copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
-                                            reply_markup=reply_markup, protect_content=PROTECT_CONTENT)
-                animelord_msgs.append(copied_msg)
-            except FloodWait as e:
-                await asyncio.sleep(e.x)
-                copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
-                                            reply_markup=msg_id, protect_content=PROTECT_CONTENT)
-                message_ids.append(copied_message)
-            try:
-                copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
-                                            reply_markup=reply_markup, protect_content=PROTECTED)
-                animated_msgs.append(copied_msgs)
-            except FloodWait:
-                await asyncio.sleep(seconds)
-                copied_msg = await msg.copy(chat_id=user_id, caption=caption.copy(), parse_mode=ParseMode.HTML, 
-                                          reply_to=reply_markup, protected_content=PROTECTED)
-            except Exception as e:
-                print(f"Failed to send message: {e}")
-                pass
-        auto_delete_mode = await db.get_auto_delete_mode()  # Check auto-delete mode
-        if auto_delete_mode and FILE_AUTO_DELETE > 0:  # Only proceed if mode is enabled and timer is positive
-            notification_msg = await message.reply(
-                f"ᴛʜɪs ғɪʟᴇ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ {get_exp_time(FILE_AUTO_DELETE).lower()}. ᴘʟᴇᴀsᴇ sᴀᴠᴇ ᴏʀ ғᴏʀᴡᴀʀᴅ ɪᴛ ᴛᴏ ʏᴏᴜʀ sᴀᴠᴇᴅ ᴍᴇssᴀɢᴇs ʙᴇғᴏʀᴇ ɪᴛ ɢᴇᴛs ᴅᴇʟᴇᴛᴇᴅ.",
-                message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
-            )
-            await asyncio.sleep(FILE_AUTO_DELETE)
-            for snt_msg in animelord_msgs:    
-                if snt_msg:
-                    try:    
-                        await snt_msg.delete()  
-                    except Exception as e:
-                        print(f"Error deleting message {snt_msg.id}: {e}")
-            try:
-                reload_url = f"https://t.me/{client.username}?start={message.command[1]}" if message.command and len(message.command) > 1 else None
-                keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("ɢᴇᴛ ғɪʟᴇ ᴀɢᴀɪɴ!", url=reload_url)]]) if reload_url else None
-                await notification_msg.edit(
-                    "ʏᴏᴜʀ ᴠɪᴅᴇᴏ/ғɪʟᴇ ɪs sᴜᴄᴄᴇssғᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ!\n\nᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ᴅᴇʟᴇᴛᴇᴅ ᴠɪᴅᴇᴏ/ғɪʟᴇ.",
-                    reply_markup=keyboard,
+            animelord_msgs = []
+            # Load settings dynamically before copying messages
+            settings = await db.get_settings()
+            PROTECT_CONTENT = settings.get('PROTECT_CONTENT', False)
+            logger.info(f"Copying message with PROTECT_CONTENT={PROTECT_CONTENT}")
+            for msg in messages:
+                caption = (CUSTOM_CAPTION.format(previouscaption="" if not msg.caption else msg.caption.html,
+                                                filename=msg.document.file_name) if bool(CUSTOM_CAPTION) and bool(msg.document)
+                        else ("" if not msg.caption else msg.caption.html))
+                reply_markup = msg.reply_markup if not DISABLE_CHANNEL_BUTTON else None
+                try:
+                    copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
+                                                reply_markup=reply_markup, protect_content=PROTECT_CONTENT)
+                    animelord_msgs.append(copied_msg)
+                except FloodWait as e:
+                    await asyncio.sleep(e.x)
+                    copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
+                                                reply_markup=reply_markup, protect_content=PROTECT_CONTENT)
+                    animelord_msgs.append(copied_msg)
+                except Exception as e:
+                    logger.error(f"Failed to send message: {e}")
+            auto_delete_mode = await db.get_auto_delete_mode()
+            if auto_delete_mode and FILE_AUTO_DELETE > 0:
+                notification_msg = await message.reply(
+                    f"ᴛʜɪs ғɪʟᴇ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ {get_exp_time(FILE_AUTO_DELETE).lower()}. ᴘʟᴇᴀsᴇ sᴀᴠᴇ ᴏʀ ғᴏʀᴡᴀʀᴅ ɪᴛ ᴛᴏ ʏᴏᴜʀ sᴀᴠᴇᴅ ᴍᴇssᴀɢᴇs ʙᴇғᴏʀᴇ ɪᴛ ɢᴇᴛs ᴅᴇʟᴇᴛᴇᴅ.",
                     message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
                 )
-            except Exception as e:
-                print(f"Error updating notification: {e}")
-        return
+                await asyncio.sleep(FILE_AUTO_DELETE)
+                for snt_msg in animelord_msgs:
+                    if snt_msg:
+                        try:
+                            await snt_msg.delete()
+                        except Exception as e:
+                            logger.error(f"Error deleting message {snt_msg.id}: {e}")
+                try:
+                    reload_url = f"https://t.me/{client.username}?start={message.command[1]}" if message.command and len(message.command) > 1 else None
+                    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("ɢᴇᴛ ғɪʟᴇ ᴀɢᴀɪɴ!", url=reload_url)]]) if reload_url else None
+                    await notification_msg.edit(
+                        "ʏᴏᴜʀ ᴠɪᴅᴇᴏ/ғɪʟᴇ ɪs sᴜᴄᴄᴇssғᴜʟʟʏ ᴅᴇʟᴇᴛᴇᴅ!\n\nᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ʙᴜᴛᴛᴏɴ ᴛᴏ ɢᴇᴛ ʏᴏᴜʀ ᴅᴇʟᴇᴛᴇᴅ ᴠɪᴅᴇᴏ/ғɪʟᴇ.",
+                        reply_markup=keyboard,
+                        message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating notification: {e}")
+            return
+        except Exception as e:
+            logger.error(f"Error processing /start command: {e}")
 
     # Original animation messages for /start command
     m = await message.reply_text("<blockquote><b>ᴡᴇʟᴄᴏᴍᴇ ᴛᴏ ᴍʏ ʙᴏᴛ.\nʜᴏᴘᴇ ʏᴏᴜ'ʀᴇ ᴅᴏɪɴɢ ᴡᴇʟʟ...</b></blockquote>")
@@ -258,7 +236,7 @@ async def start_command(client: Client, message: Message):
             message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
         )
     except Exception as e:
-        print(f"Error sending start photo: {e}")
+        logger.error(f"Error sending start photo: {e}")
         await asyncio.sleep(0.5)
         await message.reply_photo(
             photo=START_PIC,
@@ -373,7 +351,7 @@ async def add_premium_user_command(client, msg):
         )
         return
     try:
-        usermega_id = int(msg.command[1])
+        user_id = int(msg.command[1])
         time_value = int(msg.command[2])
         time_unit = msg.command[3].lower()
         expiration_time = await add_premium(user_id, time_value, time_unit)
@@ -393,7 +371,7 @@ async def add_premium_user_command(client, msg):
         )
     except ValueError:
         await msg.reply_text("<blockquote><b>ɪɴᴠᴀʟɪᴅ ɪɴᴘᴜᴛ. ᴘʟᴇᴀsᴇ ᴇɴsᴜʀᴇ ᴜsᴇʀ ɪᴅ ᴀɴᴅ ᴛɪᴍᴇ ᴠᴀʟᴜᴇ ᴀʀᴇ ɴᴜᴍʙᴇʀs</b></blockquote>.",
-                            message_effect_id=random.choice(MESSAGE_EFFECT_IDS))
+                             message_effect_id=random.choice(MESSAGE_EFFECT_IDS))
     except Exception as e:
         await msg.reply_text(f"ᴀɴ ᴇʀʀᴏʀ ᴏᴄᴄᴜʀʀᴇᴅ: {str(e)}", message_effect_id=random.choice(MESSAGE_EFFECT_IDS))
 
@@ -450,7 +428,7 @@ async def list_premium_users_command(client, message):
                 f"ᴇʀʀᴏʀ: ᴜɴᴀʙʟᴇ ᴛᴏ ғᴇᴛᴄʜ ᴜsᴇʀ ᴅᴇᴛᴀɪʟs ({str(e)})"
             )
     if len(premium_user_list) == 1:
-        await message.reply_text("ɴᴏ ᴀᴄᴛɪᴠᴇ ᴘʀᴇᴮɪᴜᴍ ᴜsᴇʀs ғᴏᴜɴᴅ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀsᴇ.",
+        await message.reply_text("ɴᴏ ᴀᴄᴛɪᴠᴇ ᴘʀᴇᴍɪᴜᴍ ᴜsᴇʀs ғᴏᴜɴᴅ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀsᴇ.",
                                  message_effect_id=random.choice(MESSAGE_EFFECT_IDS))
     else:
         await message.reply_text("\n\n".join(premium_user_list), parse_mode=None,
@@ -472,7 +450,7 @@ async def bcmd(bot: Bot, message: Message):
 async def premium_cmd(bot: Bot, message: Message):
     reply_text = (
         "<blockquote><b>ᴜsᴇ ᴛʜᴇsᴇ ᴄᴏᴍᴍᴀɴᴅs ᴛᴏ ɢᴇᴛ ᴘʀᴇᴍɪᴜᴍ ᴜsᴇʀs ʀᴇʟᴀᴛᴇᴅ ᴄᴏᴍᴍᴀɴᴅs.</b>\n\n"
-        "<b>ᴏᴛ ʜᴇʀ ᴄᴏᴍᴍᴀɴᴅs:</b></blockquote>\n"
+        "<b>ᴏᴛʜᴇʀ ᴄᴏᴍᴍᴀɴᴅs:</b></blockquote>\n"
         "- /addpremium - <b>ɢʀᴀɴᴛ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss [ᴀᴅᴍɪɴ]</b>\n"
         "- /remove_premium - <b>ʀᴇᴠᴏᴋᴇ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss [ᴀᴅᴍɪɴ]</b>\n"
         "- /premium_users - <b>ʟɪsᴛ ᴘʀᴇᴍɪᴜᴍ ᴜsᴇʀs [ᴀᴅᴍɪɴ]</b>"
