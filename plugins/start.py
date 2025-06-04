@@ -65,6 +65,30 @@ async def short_url(client: Client, message: Message, base64_string):
     except IndexError:
         pass
 
+async def is_subscribed(client: Client, user_id: int):
+    """Check if user is subscribed to all required force-sub channels."""
+    # Check if force-sub system is enabled
+    fsub_system_status = await db.get_fsub_system_status()
+    if not fsub_system_status:
+        return True  # Allow access if force-sub system is disabled
+
+    all_channels = await db.show_channels()
+    for chat_id in all_channels:
+        # Only check channels with visibility='show'
+        visibility = await db.get_channel_visibility(chat_id)
+        if visibility != 'show':
+            continue
+        try:
+            member = await client.get_chat_member(chat_id, user_id)
+            if member.status not in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]:
+                return False
+        except UserNotParticipant:
+            return False
+        except Exception as e:
+            logger.error(f"Error checking subscription for user {user_id} in channel {chat_id}: {e}")
+            return False
+    return True
+
 @Bot.on_message(filters.command('start') & filters.private)
 async def start_command(client: Client, message: Message):
     user_id = message.from_user.id
@@ -94,8 +118,22 @@ async def start_command(client: Client, message: Message):
             if not is_premium and user_id != OWNER_ID and not basic.startswith("yu3elk"):
                 await short_url(client, message, base64_string)
                 return
-        except Exception as e:
-            print(f"ᴇʀʀᴏʀ ᴘʀᴏᴄᴇssɪɴɢ sᴛᴀʀᴛ ᴘᴀʏʟᴏᴀᴅ: {e}")
+        channel_ids = []
+        if not is_premium_user:
+            try:
+                channel_ids = []
+                for channel_id in range(len(basic)):
+                    if channel_ids[channel_id] == "start":
+                        basic = channel_ids[channel_id + 1]
+                        break
+            except:
+                pass
+            try:
+                basic = text.split(" ", 1)
+                base64_string = basic[6:-1] if basic.startswith("yu3elk") else basic
+            except:
+                pass
+
         string = await decode(base64_string)
         argument = string.split("-")
         ids = []
@@ -105,13 +143,13 @@ async def start_command(client: Client, message: Message):
                 end = int(int(argument[2]) / abs(client.db_channel.id))
                 ids = range(start, end + 1) if start <= end else list(range(start, end - 1, -1))
             except Exception as e:
-                print(f"ᴇʀʀᴏʀ ᴅᴇᴄᴏᴅɪɴɢ ɪᴅs: {e}")
+                print(f"Error decoding IDs: {e}")
                 return
         elif len(argument) == 2:
             try:
                 ids = [int(int(argument[1]) / abs(client.db_channel.id))]
             except Exception as e:
-                print(f"ᴇʀʀᴏʀ ᴅᴇᴄᴏᴅɪɴɢ ɪᴅ: {e}")
+                print(f"Error decoding ID: {e}")
                 return
         # New animation messages for file request
         m = await message.reply_text("<blockquote><b>Checking...</b></blockquote>")
@@ -123,7 +161,7 @@ async def start_command(client: Client, message: Message):
             messages = await get_messages(client, ids)
         except Exception as e:
             await message.reply_text("sᴏᴍᴇᴛʜɪɴɢ ᴡᴇɴᴛ ᴡʀᴏɴɢ!")
-            print(f"ᴇʀʀᴏʀ ɢᴇᴛᴛɪɴɢ ᴍᴇssᴀɢᴇs: {e}")
+            print(f"Error getting messages: {e}")
             return
         animelord_msgs = []
         # Load settings dynamically before copying messages
@@ -142,10 +180,18 @@ async def start_command(client: Client, message: Message):
             except FloodWait as e:
                 await asyncio.sleep(e.x)
                 copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
-                                            reply_markup=reply_markup, protect_content=PROTECT_CONTENT)
-                animelord_msgs.append(copied_msg)
+                                            reply_markup=msg_id, protect_content=PROTECT_CONTENT)
+                message_ids.append(copied_message)
+            try:
+                copied_msg = await msg.copy(chat_id=user_id, caption=caption, parse_mode=ParseMode.HTML, 
+                                            reply_markup=reply_markup, protect_content=PROTECTED)
+                animated_msgs.append(copied_msgs)
+            except FloodWait:
+                await asyncio.sleep(seconds)
+                copied_msg = await msg.copy(chat_id=user_id, caption=caption.copy(), parse_mode=ParseMode.HTML, 
+                                          reply_to=reply_markup, protected_content=PROTECTED)
             except Exception as e:
-                print(f"ғᴀɪʟᴇᴅ ᴛᴏ sᴇɴᴅ ᴍᴇssᴀɢᴇ: {e}")
+                print(f"Failed to send message: {e}")
                 pass
         auto_delete_mode = await db.get_auto_delete_mode()  # Check auto-delete mode
         if auto_delete_mode and FILE_AUTO_DELETE > 0:  # Only proceed if mode is enabled and timer is positive
@@ -159,7 +205,7 @@ async def start_command(client: Client, message: Message):
                     try:    
                         await snt_msg.delete()  
                     except Exception as e:
-                        print(f"ᴇʀʀᴏʀ ᴅᴇʟᴇᴛɪɴɢ ᴍᴇssᴀɢᴇ {snt_msg.id}: {e}")
+                        print(f"Error deleting message {snt_msg.id}: {e}")
             try:
                 reload_url = f"https://t.me/{client.username}?start={message.command[1]}" if message.command and len(message.command) > 1 else None
                 keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("ɢᴇᴛ ғɪʟᴇ ᴀɢᴀɪɴ!", url=reload_url)]]) if reload_url else None
@@ -169,7 +215,7 @@ async def start_command(client: Client, message: Message):
                     message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
                 )
             except Exception as e:
-                print(f"ᴇʀʀᴏʀ ᴜᴘᴅᴀᴛɪɴɢ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ: {e}")
+                print(f"Error updating notification: {e}")
         return
 
     # Original animation messages for /start command
@@ -212,7 +258,7 @@ async def start_command(client: Client, message: Message):
             message_effect_id=random.choice(MESSAGE_EFFECT_IDS)
         )
     except Exception as e:
-        print(f"ᴇʀʀᴏʀ sᴇɴᴅɪɴɢ sᴛᴀʀᴛ ᴘʜᴏᴛᴏ: {e}")
+        print(f"Error sending start photo: {e}")
         await asyncio.sleep(0.5)
         await message.reply_photo(
             photo=START_PIC,
@@ -235,6 +281,10 @@ async def not_joined(client: Client, message: Message):
     try:
         all_channels = await db.show_channels()
         for total, chat_id in enumerate(all_channels, start=1):
+            # Only show channels with visibility='show'
+            visibility = await db.get_channel_visibility(chat_id)
+            if visibility != 'show':
+                continue
             mode = await db.get_channel_mode(chat_id)
             await message.reply_chat_action(ChatAction.TYPING)
             if not await is_sub(client, user_id, chat_id):
@@ -422,7 +472,7 @@ async def bcmd(bot: Bot, message: Message):
 async def premium_cmd(bot: Bot, message: Message):
     reply_text = (
         "<blockquote><b>ᴜsᴇ ᴛʜᴇsᴇ ᴄᴏᴍᴍᴀɴᴅs ᴛᴏ ɢᴇᴛ ᴘʀᴇᴍɪᴜᴍ ᴜsᴇʀs ʀᴇʟᴀᴛᴇᴅ ᴄᴏᴍᴍᴀɴᴅs.</b>\n\n"
-        "<b>ᴏᴛ ᴄᴏᴍᴍᴀɴᴅs:</b></blockquote>\n"
+        "<b>ᴏᴛ ʜᴇʀ ᴄᴏᴍᴍᴀɴᴅs:</b></blockquote>\n"
         "- /addpremium - <b>ɢʀᴀɴᴛ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss [ᴀᴅᴍɪɴ]</b>\n"
         "- /remove_premium - <b>ʀᴇᴠᴏᴋᴇ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss [ᴀᴅᴍɪɴ]</b>\n"
         "- /premium_users - <b>ʟɪsᴛ ᴘʀᴇᴍɪᴜᴍ ᴜsᴇʀs [ᴀᴅᴍɪɴ]</b>"
@@ -430,7 +480,6 @@ async def premium_cmd(bot: Bot, message: Message):
     reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("ᴄʟᴏsᴇ", callback_data="close")]])
     await message.reply_text(reply_text, reply_markup=reply_markup,
                              message_effect_id=random.choice(MESSAGE_EFFECT_IDS))
-
 
 #
 # Copyright (C) 2025 by AnimeLord-Bots@Github, < https://github.com/AnimeLord-Bots >.
